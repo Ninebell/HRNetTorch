@@ -31,12 +31,14 @@ def acc(target, predict):
 
 
 def get_arguments():
-    data_set_path = 'E:\\dataset\\skeleton\\train'
+    save_path = 'E:\\dataset\\skeleton\\train'
+    data_set_path = 'E:\\dataset\\Droplet'
     parser = argparse.ArgumentParser()
-    parser.add_argument('--save', '-s', nargs='+', help='save path', default=[data_set_path], dest='save_path')
+    parser.add_argument('--save', '-s', nargs='+', help='save path', default=[save_path], dest='save_path')
     parser.add_argument('--epoch', '-e', nargs='+', help='epoch count', default=[500], dest='epoch', type=int)
     parser.add_argument('--batch', '-b', nargs='+', help='batch size', default=[16], dest='batch_size', type=int)
     parser.add_argument('--pretrain', '-p', nargs='+', help='pretrain model', default=[None], dest='pretrain')
+    parser.add_argument('--data', '-d', nargs='+', help='data path', default=[data_set_path], dest='data_path')
     parser.add_argument(
         '--test', default=False, action="store_true",
         help='test'
@@ -46,8 +48,9 @@ def get_arguments():
     batch_size = parser.parse_args().batch_size
     pretrain = parser.parse_args().pretrain
     is_test = parser.parse_args().test
+    data_path = parser.parse_args().data_path
 
-    return epoch[0], batch_size[0], save_path[0], pretrain[0], is_test
+    return epoch[0], batch_size[0], save_path[0], pretrain[0], is_test, data_path[0]
 
 
 def custom_loss(target, predict):
@@ -108,7 +111,7 @@ def checkpoint(model, loss, validate_loss):
 checkpoint.min_loss = 100
 
 
-def train_main(epoch, batch_size):
+def train_main(epoch, batch_size, path):
     net = HRNet(feature=128, depth=7, input_ch=3, output_ch=1, act='selu')
     # net.info()
 
@@ -119,7 +122,7 @@ def train_main(epoch, batch_size):
                     'loader': train_loader,
                     'conf': {
                         'batch_size': batch_size,
-                        'path': 'E:\\dataset\\droplet\\train',
+                        'path': '{}\\train'.format(path),
                         'is_train': True,
                     }
                 },
@@ -127,11 +130,11 @@ def train_main(epoch, batch_size):
                     'loader': train_loader,
                     'conf': {
                         'batch_size': batch_size,
-                        'path': 'E:\\dataset\\droplet\\validate',
+                        'path': '{}\\validate'.format(path),
                         'is_train': False,
                     }
                 },
-                save_path='E:\\dataset\\droplet\\result',
+                save_path='{}\\result'.format(path),
                 tag=datetime.datetime.now(),
                 accuracy=[
                     {'metrics':acc, 'name':'mae'}
@@ -208,10 +211,10 @@ def test_main(save_path):
 
 
 if __name__ == "__main__":
-    epoch, batch_size, repeat, n_stack, save_path, pretrain, is_test = get_arguments()
+    epoch, batch_size, save_path, pretrain, is_test, data_path = get_arguments()
     if is_test:
         test_main(save_path)
 
     else:
-        train_main(300, batch_size)
+        train_main(300, batch_size, data_path)
 
