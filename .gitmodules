@@ -1,0 +1,3 @@
+[submodule "torch_module"]
+	path = torch_module
+	url = https://github.com/Ninebell/torch_module
