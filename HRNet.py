@@ -96,10 +96,10 @@ class HRNet(nn.Module):
         last_input = last_1 + last_2 + last_3
         last_output = self.hr_last(last_input)
 
-        joint_output = self.last_1(last_output)
-        joint_output = self.last(joint_output)
+        predict_output = self.last_1(last_output)
+        predict_output = self.last(predict_output)
 
-        return joint_output
+        return predict_output
 
 
 if __name__ == "__main__":
