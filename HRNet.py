@@ -6,15 +6,21 @@ import torch
 
 
 class HRNet(nn.Module):
-    def __init__(self, feature, depth, input_ch, output_ch, act):
+    def __init__(self, feature, depth, input_ch, output_ch, out_act, act):
         super(HRNet, self).__init__()
         self.feature = feature
         self.input_ch = input_ch
         self.depth = depth
-        self.output_ch = output_ch
+        self.out_act = out_act
 
         self.border_1 = self.depth // 3
         self.border_2 = self.depth // 3 * 2
+
+        if type(output_ch) == int:
+            self.output_ch = [output_ch]
+        else:
+            self.output_ch = output_ch
+        self.out_len = len(self.output_ch)
 
         self.__build__(act)
 
@@ -45,8 +51,10 @@ class HRNet(nn.Module):
 
         self.hr_last = BottleNeckBlock(self.feature, attention=True, activation=act)
 
-        self.last_1 = BottleNeckBlock(self.feature, attention=True, activation=act)
-        self.last = Conv2D(self.feature, self.output_ch, 1, stride=1, padding=0, activation='sigmoid')
+        self.last_front = nn.ModuleList([BottleNeckBlock(self.feature, attention=True, activation=act) for _ in range(self.out_len)])
+        self.last = nn.ModuleList([Conv2D(self.feature, self.output_ch[i], 1, stride=1, padding=0, activation=self.out_act[i]) for i in range(self.out_len)])
+        # self.last_1 = BottleNeckBlock(self.feature, attention=True, activation=act)
+        # self.last = Conv2D(self.feature, self.output_ch, 1, stride=1, padding=0, activation='sigmoid')
 
         self.max_pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=1)
 
@@ -96,17 +104,22 @@ class HRNet(nn.Module):
         last_input = last_1 + last_2 + last_3
         last_output = self.hr_last(last_input)
 
-        predict_output = self.last_1(last_output)
-        predict_output = self.last(predict_output)
+        predict_output = []
+        for i in range(self.out_len):
+            out = self.last_front[i](last_output)
+            out = self.last[i](out)
+            predict_output.append(out)
+        # predict_output = self.last_1(last_output)
+        # predict_output = self.last(predict_output)
 
         return predict_output
 
 
 if __name__ == "__main__":
     ip = torch.rand((2,6,256,256)).cuda()
-    net = HRNet(feature=256, depth=7, input_ch=6, output_ch=12, act='selu').cuda()
+    net = HRNet(feature=256, depth=7, input_ch=6, output_ch=[15,28], out_act=['sigmoid', 'sigmoid'], act='selu').cuda()
     print(get_param_count(net))
     output = net(ip)
     print(output[0].shape)
-    print(output[1].shape, output[1])
+    # print(output[1].shape, output[1])
 
