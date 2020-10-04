@@ -4,7 +4,6 @@ from torch_module.layers import BottleNeckBlock, Conv2D, UpConv2D
 from torch_module.utils import get_param_count
 import torch
 
-
 class HRNet(nn.Module):
     def __init__(self, feature, depth, input_ch, output_ch, act):
         super(HRNet, self).__init__()
