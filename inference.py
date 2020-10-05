@@ -5,9 +5,16 @@ import numpy as np
 
 
 class TrackingInfo:
+    '''
+        트랙킹 정보 클래스
+        die:    트랙킹 종료 설정
+        checked: 트랙킹 시 해당 객체를 사용했는지 체크용 
+        center: 발생부터 종료까지 검출된 기포의 위치
+        area: 발생부터 종료까지 검출된 기포의 영역 크기
+    '''
     def __init__(self, contours, id):
         self.die = False
-        self.checked=False
+        self.checked = False
         self.id = id
         self.center = []
         self.area = []
@@ -20,6 +27,12 @@ class TrackingInfo:
         self.die = True
 
     def set_contour(self, contours):
+        '''
+            트랙킹 정보 업데이트 함수.
+            입력 받은 contour 값을 이용해 중심 위치와 면적의 크기를 새로 갱신한다.
+            Args:
+                contours: 새로운 contour 값
+        '''
         x1 = np.max(np.asarray(contours[:,0, 0]))
         x2 = np.min(np.asarray(contours[:,0, 0]))
 
@@ -40,16 +53,71 @@ class TrackingInfoMaker:
         self.contours = {}
 
     def create_new_id(self):
+        '''
+            tracking info 를 만들기 위한 새로운 ID 생성
+            Args
+            Returns
+                new ID
+
+
+        '''
         return len(self.contours)+1
 
     def create_info(self, contour):
+        '''
+            새로운 트랙킹 객체 생성
+            Args
+                contour: 객체 생성에 필요한 contour 정보
+            Returns
+                새로 생성된 Tracking 객체
+        '''
         new_id = self.create_new_id()
         self.contours[new_id] = TrackingInfo(contour, new_id)
         return self.contours[new_id]
+    
+
+    def find_max_possible_contour(self, origin, contour_base, is_used):
+        '''
+            origin 정보와 contour_base간 교차영역을 찾아 가장 높은 Index를 반환
+            Args
+                origin: Tracking 정보가 Update 될 객체 
+                contour_base: Update하기위해 비교연산을 위한 contour 영역들
+                is_used: contour 중 이미 다른 Tracking 객체 update에 사용된 객체를 표시. 해당 값이 True면 사용되지 않음.
+            Return
+                max_idx: 가장 교차 영역이 큰 index 반환.
+        '''
+        contour_count = len(contour_base)
+        max_duplicate = 0
+        max_idx = -1
+
+        # Tracking 객체 업데이트에 적합한 contour 검색
+        for idx in range(contour_count):
+            if is_used[idx]:
+                continue
+
+            # contour가 가지는 값은 0, 255만 있어서 0, 1로 변경하여 서로 * 연산을하면 교차되는 영역만 픽셀이 1로 남게됨.
+            # 이를 이용해 남은 1의 합을 구하면 교차영역의 넓이가 됨.
+            duplicate = np.sum(contour_base[idx]//255 * origin.base//255)
+
+            # if duplicate > max_duplicate and duplicate > self.contours[ct_key].area[-1]//2:
+            if duplicate > max_duplicate:
+                max_duplicate = duplicate
+                max_idx = idx
+        return max_idx
+
 
     def update_tracking_info(self, contours):
+        '''
+            입력받은 예비 contour 값들을 기반으로 기존에 존재하던 Tracking 객체와 비교하여 정보를 갱신하고
+            정보 갱신에 사용되지않은 contour는 새로운 객체로 생성
+            Tracking 방식은 contour간 교차 영역이 가장 큰 객체간 정보를 업데이트 한다.
+            Args
+                contours: contour 정보들
+            Return
+        '''
         contour_count = len(contours)
         is_used = [False for _ in range(contour_count)]
+        # Tracking에 필요한 contour 영역 생성
         base = np.zeros((64,64), np.uint8)
         contour_base = [cv2.drawContours(base.copy(), contours, i, 255, -1) for i in range(contour_count)]
         for ct_key in self.contours:
@@ -57,18 +125,7 @@ class TrackingInfoMaker:
                 continue
             else:
                 self.contours[ct_key].set_find(False)
-                max_duplicate = 0
-                max_idx = -1
-                for idx in range(contour_count):
-                    if is_used[idx]:
-                        continue
-
-                    duplicate = np.sum(contour_base[idx]//255 * self.contours[ct_key].base//255)
-
-                    # if duplicate > max_duplicate and duplicate > self.contours[ct_key].area[-1]//2:
-                    if duplicate > max_duplicate:
-                        max_duplicate = duplicate
-                        max_idx = idx
+                max_idx = self.find_max_possible_contour(self.contours[ct_key], contour_base, is_used)
 
                 if max_idx != -1:
                     is_used[max_idx] = True
@@ -83,6 +140,13 @@ class TrackingInfoMaker:
 
 
 def predict_to_image(predicted):
+    '''
+        예측된 Tensor를 이미지 배열로 변환하는 함수
+        Args
+            predicted: 예측된 Tensor 값
+        Returns
+            np_image: 변환된 이미지
+    '''
     np_image = predicted.detach().cpu().numpy()
     np_image = np.squeeze(np_image)
     np_image = np.expand_dims(np_image, -1)
@@ -93,17 +157,36 @@ def predict_to_image(predicted):
 
 
 def get_contour(image):
-    contours, hierarchy = cv2.findContours(image, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    '''
+        image로 부터 contour 를 잡아냄. 
+        Args
+            image: prediction된 이미지로 segment 이미지가 입력으로 사용됨
+        Returns
+            contours: cv2 findContour 함수를 사용해 찾아낸 contour를 반환.
 
-    for ct in contours:
-        print(ct.shape)
+    '''
+    contours, hierarchy = cv2.findContours(image, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     return contours
 
 
 def inference(model_path, video_path):
+    '''
+        inference 방법에 대한 sample 함수
+        TrackingInfoMaker 객체를 생성하고
+        model_path를 이용해 모델을 불러온 뒤 영상을 계속해서 입력받아 정보를 갱신한다.
+        Args
+            model_path: 모델의 경로 확장자는 일반적으로 zip을 사용 pb도 괜찮음
+            video_path: 액적 영상의 경로를 입력
+    '''
     def convert_image_for_input(image):
-        image_shape = image.shape
-        print(image_shape)
+        '''
+            모델에 입력하기 위해 Tensor 타입으로 이미지를 변환하는 함수
+            Args
+                image: 입력 이미지로 크기를 (256,256)으로 변경하고 255로 나눈 값을 이용한다.
+            Return
+                image: tensor 타입의 이미지
+
+        '''
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         image = cv2.resize(image, (256, 256))
         image = np.transpose(image, (2, 0, 1))
@@ -112,30 +195,45 @@ def inference(model_path, video_path):
         image = torch.from_numpy(image).type(torch.FloatTensor).cuda()
 
         return image
-    model = torch.jit.load(model_path)
 
+    # model 로드
+    model = torch.jit.load(model_path)
+    print('model loaded')
+
+    # model 쿠다 설정
     if torch.cuda.is_available():
+        print('model to cuda')
         model.cuda()
+    
+    # 트래킹 정보 생성자 생성
     maker = TrackingInfoMaker()
+    print('TrackingInfoMaker made')
+
+    # 트래킹 영상 로드
     vc = cv2.VideoCapture(video_path)
     ret, image = vc.read()
+    print('Start tracking')
     while ret:
-        # image = image/255
         image = convert_image_for_input(image)
         predict = model(image)
-        print(torch.max(predict))
+
         predict = predict_to_image(predict)
+
+        # contour 추출
         contours = get_contour(predict)
+
         cv2.imshow('result', predict)
 
+        # Tracking 정보 갱신
         maker.update_tracking_info(contours)
+
+        # 입력 영상 출력을 위해 변환
         input_image = image.detach().cpu().numpy()
         input_image = np.squeeze(input_image)
         input_image = np.transpose(input_image, (1,2,0))
         input_image = cv2.cvtColor(input_image, cv2.COLOR_RGB2BGR)
         input_image = np.array(input_image*255, dtype=np.uint8)
         draw_image = input_image.copy()
-        print(input_image.shape)
         for ct_key in maker.contours:
             if maker.contours[ct_key].die:
                 continue
@@ -145,7 +243,7 @@ def inference(model_path, video_path):
                             org=(int(center[0]*4), int(center[1]*4)),
                             fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                             fontScale=0.5,
-                            color=(255,255,255),
+                            color=(0, 0, 255),
                             lineType=2)
                 resized_base = cv2.resize(maker.contours[ct_key].base, (256,256))
                 edge = cv2.Canny(resized_base,128, 255)
@@ -157,9 +255,11 @@ def inference(model_path, video_path):
         cv2.imshow('draw', draw_image)
         cv2.waitKey(10)
         ret, image = vc.read()
+    print('End tacking')
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    model_path = 'D:\\dataset\\Droplet\\best_model.zip'
-    video_path = 'D:\\dataset\\Droplet\\a.avi'
+    model_path = 'E:\\dataset\\Droplet\\best_model.zip'
+    video_path = 'E:\\dataset\\Droplet\\video\\a.avi'
     inference(model_path, video_path)
