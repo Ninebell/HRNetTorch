@@ -103,15 +103,19 @@ class HRNet(nn.Module):
         last_input = last_1 + last_2 + last_3
         last_output = self.hr_last(last_input)
 
-        predict_output = []
+        predict = None
         for i in range(self.out_len):
             out = self.last_front[i](last_output)
             out = self.last[i](out)
-            predict_output.append(out)
+            if predict is None:
+                predict = out
+            else:
+                predict = torch.cat([predict, out], dim=1)
+            # predict_output.append(out)
         # predict_output = self.last_1(last_output)
         # predict_output = self.last(predict_output)
 
-        return predict_output
+        return predict
 
 
 if __name__ == "__main__":
