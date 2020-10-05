@@ -4,14 +4,34 @@ import cv2
 import numpy as np
 
 
+def convert_image_for_input(image):
+    '''
+        모델에 입력하기 위해 Tensor 타입으로 이미지를 변환하는 함수
+        Args
+            image: 입력 이미지로 크기를 (256,256)으로 변경하고 255로 나눈 값을 이용한다.
+        Return
+            image: tensor 타입의 이미지
+
+    '''
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = cv2.resize(image, (256, 256))
+    image = np.transpose(image, (2, 0, 1))
+    image = np.expand_dims(image, 0)
+    image = image / 255.
+    image = torch.from_numpy(image).type(torch.FloatTensor).cuda()
+
+    return image
+
+
 class TrackingInfo:
     '''
         트랙킹 정보 클래스
         die:    트랙킹 종료 설정
-        checked: 트랙킹 시 해당 객체를 사용했는지 체크용 
+        checked: 트랙킹 시 해당 객체를 사용했는지 체크용
         center: 발생부터 종료까지 검출된 기포의 위치
         area: 발생부터 종료까지 검출된 기포의 영역 크기
     '''
+
     def __init__(self, contours, id):
         self.die = False
         self.checked = False
@@ -33,14 +53,14 @@ class TrackingInfo:
             Args:
                 contours: 새로운 contour 값
         '''
-        x1 = np.max(np.asarray(contours[:,0, 0]))
-        x2 = np.min(np.asarray(contours[:,0, 0]))
+        x1 = np.max(np.asarray(contours[:, 0, 0]))
+        x2 = np.min(np.asarray(contours[:, 0, 0]))
 
-        y1 = np.max(np.asarray(contours[:,0, 1]))
-        y2 = np.min(np.asarray(contours[:,0, 1]))
-        self.center.append(((x1+x2)/2.,(y1+y2)/2.))
-        self.base = cv2.drawContours(np.zeros((64,64), np.uint8), [contours], 0, 255, -1)
-        self.area.append(np.sum(self.base//255))
+        y1 = np.max(np.asarray(contours[:, 0, 1]))
+        y2 = np.min(np.asarray(contours[:, 0, 1]))
+        self.center.append(((x1 + x2) / 2., (y1 + y2) / 2.))
+        self.base = cv2.drawContours(np.zeros((64, 64), np.uint8), [contours], 0, 255, -1)
+        self.area.append(np.sum(self.base // 255))
 
     def update_info(self, contour):
         self.set_contour(contour)
@@ -61,7 +81,7 @@ class TrackingInfoMaker:
 
 
         '''
-        return len(self.contours)+1
+        return len(self.contours) + 1
 
     def create_info(self, contour):
         '''
@@ -74,13 +94,12 @@ class TrackingInfoMaker:
         new_id = self.create_new_id()
         self.contours[new_id] = TrackingInfo(contour, new_id)
         return self.contours[new_id]
-    
 
     def find_max_possible_contour(self, origin, contour_base, is_used):
         '''
             origin 정보와 contour_base간 교차영역을 찾아 가장 높은 Index를 반환
             Args
-                origin: Tracking 정보가 Update 될 객체 
+                origin: Tracking 정보가 Update 될 객체
                 contour_base: Update하기위해 비교연산을 위한 contour 영역들
                 is_used: contour 중 이미 다른 Tracking 객체 update에 사용된 객체를 표시. 해당 값이 True면 사용되지 않음.
             Return
@@ -95,16 +114,19 @@ class TrackingInfoMaker:
             if is_used[idx]:
                 continue
 
-            # contour가 가지는 값은 0, 255만 있어서 0, 1로 변경하여 서로 * 연산을하면 교차되는 영역만 픽셀이 1로 남게됨.
+            # contour가 가지는 값은 0, 255만 있어서 0, 1로 변경하여 서로 and, or 연산을하면 교차되는 영역과 공유 영약의 픽셀이 1로 남게됨.
             # 이를 이용해 남은 1의 합을 구하면 교차영역의 넓이가 됨.
-            duplicate = np.sum(contour_base[idx]//255 * origin.base//255)
+            #교차영역의 넓이와 전체 영역의 넓이의 비례를 계산하여 tracking 되는 객체와 가장 유사한 객체로 업데이트 함.
+            base_one = contour_base[idx]//255
+            origin_one = origin.base//255
+
+            duplicate = np.sum(base_one&origin_one) / np.sum(base_one|origin_one)
 
             # if duplicate > max_duplicate and duplicate > self.contours[ct_key].area[-1]//2:
             if duplicate > max_duplicate:
                 max_duplicate = duplicate
                 max_idx = idx
         return max_idx
-
 
     def update_tracking_info(self, contours):
         '''
@@ -118,7 +140,7 @@ class TrackingInfoMaker:
         contour_count = len(contours)
         is_used = [False for _ in range(contour_count)]
         # Tracking에 필요한 contour 영역 생성
-        base = np.zeros((64,64), np.uint8)
+        base = np.zeros((64, 64), np.uint8)
         contour_base = [cv2.drawContours(base.copy(), contours, i, 255, -1) for i in range(contour_count)]
         for ct_key in self.contours:
             if self.contours[ct_key].die:
@@ -152,13 +174,12 @@ def predict_to_image(predicted):
     np_image = np.expand_dims(np_image, -1)
     np_image = np.where(np_image > 0.5, 255, 0)
     np_image = np.array(np_image, dtype=np.uint8)
-    print(np_image.shape)
     return np_image
 
 
 def get_contour(image):
     '''
-        image로 부터 contour 를 잡아냄. 
+        image로 부터 contour 를 잡아냄.
         Args
             image: prediction된 이미지로 segment 이미지가 입력으로 사용됨
         Returns
@@ -178,23 +199,6 @@ def inference(model_path, video_path):
             model_path: 모델의 경로 확장자는 일반적으로 zip을 사용 pb도 괜찮음
             video_path: 액적 영상의 경로를 입력
     '''
-    def convert_image_for_input(image):
-        '''
-            모델에 입력하기 위해 Tensor 타입으로 이미지를 변환하는 함수
-            Args
-                image: 입력 이미지로 크기를 (256,256)으로 변경하고 255로 나눈 값을 이용한다.
-            Return
-                image: tensor 타입의 이미지
-
-        '''
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = cv2.resize(image, (256, 256))
-        image = np.transpose(image, (2, 0, 1))
-        image = np.expand_dims(image, 0)
-        image = image/255.
-        image = torch.from_numpy(image).type(torch.FloatTensor).cuda()
-
-        return image
 
     # model 로드
     model = torch.jit.load(model_path)
@@ -204,7 +208,7 @@ def inference(model_path, video_path):
     if torch.cuda.is_available():
         print('model to cuda')
         model.cuda()
-    
+
     # 트래킹 정보 생성자 생성
     maker = TrackingInfoMaker()
     print('TrackingInfoMaker made')
@@ -230,9 +234,9 @@ def inference(model_path, video_path):
         # 입력 영상 출력을 위해 변환
         input_image = image.detach().cpu().numpy()
         input_image = np.squeeze(input_image)
-        input_image = np.transpose(input_image, (1,2,0))
+        input_image = np.transpose(input_image, (1, 2, 0))
         input_image = cv2.cvtColor(input_image, cv2.COLOR_RGB2BGR)
-        input_image = np.array(input_image*255, dtype=np.uint8)
+        input_image = np.array(input_image * 255, dtype=np.uint8)
         draw_image = input_image.copy()
         for ct_key in maker.contours:
             if maker.contours[ct_key].die:
@@ -240,26 +244,27 @@ def inference(model_path, video_path):
             else:
                 center = maker.contours[ct_key].center[-1]
                 cv2.putText(img=draw_image, text='{}'.format(ct_key),
-                            org=(int(center[0]*4), int(center[1]*4)),
+                            org=(int(center[0] * 4), int(center[1] * 4)),
                             fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                             fontScale=0.5,
                             color=(0, 0, 255),
                             lineType=2)
-                resized_base = cv2.resize(maker.contours[ct_key].base, (256,256))
-                edge = cv2.Canny(resized_base,128, 255)
+                resized_base = cv2.resize(maker.contours[ct_key].base, (256, 256))
+                edge = cv2.Canny(resized_base, 128, 255)
                 edge = np.expand_dims(edge, axis=-1)
-                edge = np.ones((256,256,3), dtype=np.uint8)*edge
-                draw_image = draw_image & (255-edge)
+                edge = np.ones((256, 256, 3), dtype=np.uint8) * edge
+                draw_image = draw_image & (255 - edge)
                 draw_image = draw_image | edge
 
         cv2.imshow('draw', draw_image)
-        cv2.waitKey(10)
+        cv2.waitKey(1)
         ret, image = vc.read()
     print('End tacking')
     cv2.destroyAllWindows()
+    return maker.contours
 
 
 if __name__ == "__main__":
     model_path = 'E:\\dataset\\Droplet\\best_model.zip'
-    video_path = 'E:\\dataset\\Droplet\\video\\a.avi'
+    video_path = 'E:\\dataset\\Droplet\\video\\g.avi'
     inference(model_path, video_path)
