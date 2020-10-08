@@ -9,6 +9,13 @@ In split position, they have skip connections to each floors.
 
 ---
 
+
+## Tracking Result  
+
+![](./Image/test.gif)
+
+---
+
 if you want take model, you need to clone the submodule of torch_module. For some blocks.
 you can change models depth and output channel. and may be I will change the stucture of output to more scalable.
 
@@ -31,6 +38,3 @@ When you use model for joint prediction, you need change output channel to 17(po
 
 ---
 
-## Tracking Result  
-
-![](./Image/test.gif)
