@@ -1,4 +1,5 @@
 import torch.jit
+from PIL import Image
 import torch
 import cv2
 import numpy as np
@@ -216,7 +217,9 @@ def inference(model_path, video_path):
     # 트래킹 영상 로드
     vc = cv2.VideoCapture(video_path)
     ret, image = vc.read()
+    image_list = []
     print('Start tracking')
+    count = 0
     while ret:
         image = convert_image_for_input(image)
         predict = model(image)
@@ -256,15 +259,23 @@ def inference(model_path, video_path):
                 draw_image = draw_image & (255 - edge)
                 draw_image = draw_image | edge
 
+        draw_image = cv2.cvtColor(draw_image, cv2.COLOR_BGR2RGB)
+        if count < 100:
+            image_list.append(Image.fromarray(draw_image))
+            count = count + 1
         cv2.imshow('draw', draw_image)
-        cv2.waitKey(1)
+
+        key = cv2.waitKey(1)
+        if int(key) == 27:
+            break
         ret, image = vc.read()
+    image_list[0].save('test.gif', save_all=True, append_images=image_list[1:])
     print('End tacking')
     cv2.destroyAllWindows()
     return maker.contours
 
 
 if __name__ == "__main__":
-    model_path = 'E:\\dataset\\Droplet\\best_model.zip'
-    video_path = 'E:\\dataset\\Droplet\\video\\g.avi'
+    model_path = 'D:\\dataset\\Droplet\\best_model.zip'
+    video_path = 'D:\\dataset\\Droplet\\a.avi'
     inference(model_path, video_path)

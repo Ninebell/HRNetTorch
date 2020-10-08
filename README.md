@@ -28,3 +28,9 @@ It used output channel to 1.
 ---
 
 When you use model for joint prediction, you need change output channel to 17(pose) or 21(hand pose). 
+
+---
+
+## Tracking Result  
+
+![](./Image/test.gif)
