@@ -242,7 +242,11 @@ def train_main(epoch, batch_size, path, save_path):
     '''
 
     net = HRNet(feature=128, depth=11, input_ch=3, output_ch=[1], out_act=['sigmoid'], act='relu')
+    print(net.parameters()[-1].shape)
+    # print(net[-1].shape)
     net.cuda()
+    cv2.imshow("T", np.zeros((64,64,1)))
+    cv2.waitKey()
 
     optim = torch.optim.Adam(net.parameters(), lr=1e-4)
     loss = custom_loss
