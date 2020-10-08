@@ -1,5 +1,7 @@
 import torch.jit
+import json
 import torch
+import math
 import cv2
 import numpy as np
 
@@ -32,13 +34,15 @@ class TrackingInfo:
         area: 발생부터 종료까지 검출된 기포의 영역 크기
     '''
 
-    def __init__(self, contours, id):
+    def __init__(self, contours, id, frame):
         self.die = False
         self.checked = False
         self.id = id
         self.center = []
         self.area = []
-        self.set_contour(contours)
+        self.frames = []
+        self.avg = 0
+        self.set_contour(contours, frame)
 
     def set_find(self, find):
         self.checked = find
@@ -46,7 +50,7 @@ class TrackingInfo:
     def set_die(self):
         self.die = True
 
-    def set_contour(self, contours):
+    def set_contour(self, contours, frame):
         '''
             트랙킹 정보 업데이트 함수.
             입력 받은 contour 값을 이용해 중심 위치와 면적의 크기를 새로 갱신한다.
@@ -59,11 +63,34 @@ class TrackingInfo:
         y1 = np.max(np.asarray(contours[:, 0, 1]))
         y2 = np.min(np.asarray(contours[:, 0, 1]))
         self.center.append(((x1 + x2) / 2., (y1 + y2) / 2.))
+        self.frames.append(frame)
+        if len(self.center) > 2:
+            speed = [math.sqrt(
+                (self.center[j][0] - self.center[j + 1][0]) ** 2 + (self.center[j][1] - self.center[j + 1][1]) ** 2) for
+                j in range(len(self.center) - 1)]
+            speed = np.array(speed, dtype=float)
+            self.avg = np.mean(speed)
         self.base = cv2.drawContours(np.zeros((64, 64), np.uint8), [contours], 0, 255, -1)
         self.area.append(np.sum(self.base // 255))
 
-    def update_info(self, contour):
-        self.set_contour(contour)
+    def update_info(self, contour, frame):
+        self.set_contour(contour, frame)
+
+    def __str__(self):
+        info = 'id,{0},die,{1}'.format(self.id, self.die)
+        info = info + ',frame,'
+        for fr in self.frames:
+            info = info + '{},'.format(fr)
+
+        info = info + 'center,'
+        for ct in self.center:
+            info = info + '{},'.format(ct)
+
+        info = info + 'area,'
+        for ar in self.area:
+            info = info + '{},'.format(ar)
+        info = info[:-1]
+        return info
 
 
 class TrackingInfoMaker:
@@ -83,7 +110,7 @@ class TrackingInfoMaker:
         '''
         return len(self.contours) + 1
 
-    def create_info(self, contour):
+    def create_info(self, contour, frame):
         '''
             새로운 트랙킹 객체 생성
             Args
@@ -92,7 +119,7 @@ class TrackingInfoMaker:
                 새로 생성된 Tracking 객체
         '''
         new_id = self.create_new_id()
-        self.contours[new_id] = TrackingInfo(contour, new_id)
+        self.contours[new_id] = TrackingInfo(contour, new_id, frame)
         return self.contours[new_id]
 
     def find_max_possible_contour(self, origin, contour_base, is_used):
@@ -114,13 +141,9 @@ class TrackingInfoMaker:
             if is_used[idx]:
                 continue
 
-            # contour가 가지는 값은 0, 255만 있어서 0, 1로 변경하여 서로 and, or 연산을하면 교차되는 영역과 공유 영약의 픽셀이 1로 남게됨.
+            # contour가 가지는 값은 0, 255만 있어서 0, 1로 변경하여 서로 * 연산을하면 교차되는 영역만 픽셀이 1로 남게됨.
             # 이를 이용해 남은 1의 합을 구하면 교차영역의 넓이가 됨.
-            #교차영역의 넓이와 전체 영역의 넓이의 비례를 계산하여 tracking 되는 객체와 가장 유사한 객체로 업데이트 함.
-            base_one = contour_base[idx]//255
-            origin_one = origin.base//255
-
-            duplicate = np.sum(base_one&origin_one) / np.sum(base_one|origin_one)
+            duplicate = np.sum(contour_base[idx] // 255 * origin.base // 255)
 
             # if duplicate > max_duplicate and duplicate > self.contours[ct_key].area[-1]//2:
             if duplicate > max_duplicate:
@@ -128,7 +151,7 @@ class TrackingInfoMaker:
                 max_idx = idx
         return max_idx
 
-    def update_tracking_info(self, contours):
+    def update_tracking_info(self, contours, frame):
         '''
             입력받은 예비 contour 값들을 기반으로 기존에 존재하던 Tracking 객체와 비교하여 정보를 갱신하고
             정보 갱신에 사용되지않은 contour는 새로운 객체로 생성
@@ -151,14 +174,14 @@ class TrackingInfoMaker:
 
                 if max_idx != -1:
                     is_used[max_idx] = True
-                    self.contours[ct_key].update_info(contours[max_idx])
+                    self.contours[ct_key].update_info(contours[max_idx], frame)
                     self.contours[ct_key].set_find(True)
                 else:
                     self.contours[ct_key].set_die()
 
         for idx in range(contour_count):
             if not is_used[idx]:
-                self.create_info(contours[idx])
+                self.create_info(contours[idx], frame)
 
 
 def predict_to_image(predicted):
@@ -217,7 +240,9 @@ def inference(model_path, video_path):
     vc = cv2.VideoCapture(video_path)
     ret, image = vc.read()
     print('Start tracking')
+    frame_num = 1
     while ret:
+        frame_num = frame_num + 1
         image = convert_image_for_input(image)
         predict = model(image)
 
@@ -229,7 +254,7 @@ def inference(model_path, video_path):
         cv2.imshow('result', predict)
 
         # Tracking 정보 갱신
-        maker.update_tracking_info(contours)
+        maker.update_tracking_info(contours, frame_num)
 
         # 입력 영상 출력을 위해 변환
         input_image = image.detach().cpu().numpy()
@@ -257,7 +282,7 @@ def inference(model_path, video_path):
                 draw_image = draw_image | edge
 
         cv2.imshow('draw', draw_image)
-        cv2.waitKey(1)
+        cv2.waitKey(10)
         ret, image = vc.read()
     print('End tacking')
     cv2.destroyAllWindows()
